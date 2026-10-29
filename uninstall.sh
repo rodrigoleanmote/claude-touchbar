@@ -28,5 +28,6 @@ else
 fi
 pkill -x MTMR 2>/dev/null && sleep 1 && open -a MTMR || true
 
+pkill -f "$DEST/claudebar daemon" 2>/dev/null || true
 rm -rf "$DEST"
 echo "Done. MTMR itself is still installed (brew uninstall --cask mtmr to remove it)."

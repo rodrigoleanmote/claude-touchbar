@@ -1,10 +1,13 @@
-// Reads Cowork sessions from the Claude app's sidebar (any window in Chat & Cowork mode)
-// and mirrors them as files next to the Code sessions the hooks write, for the Touch Bar.
+// The Touch Bar side of claude-touchbar.
 //
-//   claudebar scan            refresh ~/.claude/touchbar/sessions/cowork-*.json
+//   claudebar daemon          keep running: every second, lay out the Touch Bar slots from the
+//                             session files; every 3s, refresh Cowork sessions from the sidebar
+//   claudebar scan            refresh ~/.claude/touchbar/sessions/cowork-*.json once
 //   claudebar press <title>   open that Cowork session (clicks its sidebar row)
 //
-// Must run under MTMR, which holds the Accessibility permission.
+// Cowork sessions are read from the Claude app's sidebar (any window in Chat & Cowork mode) and
+// mirrored as files next to the Code sessions the hooks write. Must run under MTMR, which holds
+// the Accessibility permission.
 import Cocoa
 import ApplicationServices
 
@@ -158,9 +161,80 @@ func press(_ title: String, project: String?) {
     }
 }
 
+// MARK: - Touch Bar slots
+
+let baseDir = NSHomeDirectory() + "/.claude/touchbar"
+let slotsDir = baseDir + "/slots"
+let slotCount = 6
+let readyTTL = 8 * 3600     // forget finished sessions after 8h without activity
+let workingTTL = 30 * 60    // a "working" session silent for 30 min probably died
+let maxTitle = 10
+let spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+struct Session { var kind, state, title, appId, project: String; var ts, created: Int }
+
+func loadSessions(now: Int) -> [Session] {
+    var out: [Session] = []
+    for f in (try? FileManager.default.contentsOfDirectory(atPath: sessionsDir)) ?? [] where f.hasSuffix(".json") {
+        let path = "\(sessionsDir)/\(f)"
+        guard let d = FileManager.default.contents(atPath: path),
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { continue }
+        let s = Session(kind: o["kind"] as? String ?? "code", state: o["state"] as? String ?? "ready",
+                        title: o["title"] as? String ?? "", appId: o["app_id"] as? String ?? "",
+                        project: o["project"] as? String ?? "", ts: o["ts"] as? Int ?? 0,
+                        created: o["created"] as? Int ?? o["ts"] as? Int ?? 0)
+        let ttl = s.state == "working" ? workingTTL : readyTTL
+        if now - s.ts > ttl { try? FileManager.default.removeItem(atPath: path); continue }
+        out.append(s)
+    }
+    // Stable positions: sessions keep the order in which they started.
+    return out.sorted { ($0.created, $0.title) < ($1.created, $1.title) }
+}
+
+func writeIfChanged(_ path: String, _ text: String) {
+    if let old = FileManager.default.contents(atPath: path), String(data: old, encoding: .utf8) == text { return }
+    try? text.write(toFile: path, atomically: true, encoding: .utf8)
+}
+
+// For each slot, N.txt is what MTMR shows ("title<TAB>icon", icon = "<kind>-<state>"; empty
+// hides the button) and N.tsv is what a tap opens (kind, app id, title, project).
+func layout(now: Int) {
+    try? FileManager.default.createDirectory(atPath: slotsDir, withIntermediateDirectories: true)
+    let sessions = loadSessions(now: now)
+    for i in 0..<slotCount {
+        var display = "", target = ""
+        if i < sessions.count {
+            let s = sessions[i]
+            var title = s.title
+            if title.count > maxTitle { title = String(title.prefix(maxTitle - 1)) + "…" }
+            if s.state == "working" { title += " " + spinner[now % spinner.count] }
+            display = "\(title)\t\(s.kind)-\(s.state)"
+            let dash = { (v: String) in v.isEmpty ? "-" : v }
+            target = [s.kind, dash(s.appId), dash(s.title), dash(s.project)].joined(separator: "\t")
+        }
+        writeIfChanged("\(slotsDir)/\(i + 1).txt", display)
+        writeIfChanged("\(slotsDir)/\(i + 1).tsv", target)
+    }
+}
+
+func daemon() {
+    // One daemon at a time: MTMR may try to start it again after a restart.
+    let lock = open(baseDir + "/claudebar.lock", O_CREAT | O_RDWR, 0o644)
+    guard lock >= 0, flock(lock, LOCK_EX | LOCK_NB) == 0 else { exit(0) }
+    var tick = 0
+    while true {
+        let now = Int(Date().timeIntervalSince1970)
+        if tick % 3 == 0 { scan() }
+        layout(now: now)
+        tick += 1
+        Thread.sleep(forTimeInterval: 1)
+    }
+}
+
 let args = CommandLine.arguments
 switch args.count > 1 ? args[1] : "" {
+case "daemon": daemon()
 case "scan": scan()
 case "press" where args.count > 2: press(args[2], project: args.count > 3 && !args[3].isEmpty ? args[3] : nil)
-default: print("usage: claudebar scan | press <title> [project]")
+default: print("usage: claudebar daemon | scan | press <title> [project]")
 }
