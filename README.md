@@ -1,8 +1,8 @@
 # claude-touchbar
 
-See your Claude sessions on the MacBook Pro Touch Bar: one tile per session, **gray with a spinner while Claude works, blue when it's waiting for you** (finished, asking a question, or needing permission). Tap a tile to jump to that session.
+See your Claude sessions on the MacBook Pro Touch Bar: one tile per session, **gray with a spinner while Claude works, blue when it's waiting for you** (finished, asking a question, or needing permission). Each tile shows where the session lives (a terminal icon for Code, a robot for Cowork). Tap a tile to jump to that session.
 
-![Touch Bar with four Claude sessions](docs/touchbar.png)
+![Touch Bar with Code and Cowork sessions](docs/touchbar.png)
 
 Works with both kinds of sessions in the Claude desktop app:
 
@@ -46,19 +46,36 @@ Code sessions appear the next time they do something (send a message, run a tool
 
 | Piece | What it does |
 | --- | --- |
-| `src/hook.sh` | Claude Code hook. On `UserPromptSubmit` / `PreToolUse` / `PostToolUse` marks the session *working*; on `Stop` / `Notification` marks it *ready*; on `SessionEnd` removes it. Writes one JSON file per session in `~/.claude/touchbar/sessions/`, with the session title and the desktop app's session id. |
-| `src/claudebar.swift` | Reads the Claude app's sidebar via Accessibility (only windows in Chat & Cowork mode). Rows marked running become *working*, rows with an unread reply become *ready*. Mirrors them as `cowork-*.json` files. Also opens a Cowork session by clicking its row. |
-| `src/status.sh N` | Prints the Nth tile for MTMR: blue background when ready, gray with a spinner when working, nothing when there's no Nth session (MTMR hides empty tiles). |
+| `icons/<kind>.png` | One icon per kind of session. Each file adds a kind: the installer gives every Touch Bar position one button per kind. |
+| `src/hook.sh` | Claude Code hook. On `UserPromptSubmit` / `PreToolUse` / `PostToolUse` marks the session *working*; on `Stop` / `Notification` marks it *ready*; on `SessionEnd` removes it. Writes one JSON file per session in `~/.claude/touchbar/sessions/` (`kind: "code"`), with the session title and the desktop app's session id. |
+| `src/claudebar.swift` | Reads the Claude app's sidebar via Accessibility (only windows in Chat & Cowork mode). Rows marked running become *working*, rows with an unread reply become *ready*. Mirrors them as `cowork-*.json` files (`kind: "cowork"`). Also opens a Cowork session by clicking its row. |
+| `src/status.sh N KIND` | Prints the Nth tile for MTMR if the Nth session is of that kind: blue background when ready, gray with a spinner when working. Otherwise prints nothing, and MTMR hides the button. |
 | `src/open.sh N` | Tap action: opens a Code session with `claude://claude.ai/epitaxy/<session id>`, or a Cowork session through `claudebar press`. |
-| `src/make_icon.py` | Draws the robot icon (no dependencies). |
+| `src/make_icon.py` | Draws the built-in icons (no dependencies). |
 | `src/axprobe.swift` | Dev tool: dumps the app's accessibility tree, for fixing the reader when the app changes. |
 
 Tiles keep their position in the order sessions started. Up to 6 tiles; a finished session disappears after 8 hours without activity, a "working" one after 30 minutes of silence (it probably died).
+
+## Adding another tool
+
+Any tool can put sessions on the Touch Bar by writing JSON files to `~/.claude/touchbar/sessions/`:
+
+```json
+{ "kind": "mytool", "state": "working", "title": "Deploy staging", "ts": 1793284805, "created": 1793284805 }
+```
+
+- `kind`: which icon to use; add a matching white-on-transparent 48×48 PNG as `icons/mytool.png` and re-run `./install.sh`.
+- `state`: `working` or `ready`.
+- `ts`: last update (Unix seconds). `created` keeps the tile's position stable.
+- Delete the file when the session ends.
+
+Tapping a tile of a new kind just brings Claude to the front; to open the session itself, add a case for your kind in `src/open.sh`.
 
 ## Limitations
 
 - **Cowork depends on the app's UI.** The reader matches the sidebar by its structure (DOM classes and position), not by labels, so it works in any app language, but an app redesign can break it. Running sessions are detected by the status text, matched in a few languages (`running`, `en ejecución`, …); add yours in `runningWords` in `claudebar.swift`.
 - **MTMR 0.27 only supports 16 ANSI colors**, so the blue is a strong one.
+- **Gaps between tiles vary a little.** MTMR can't change a button's icon at runtime, so each position has one button per kind and the unused ones are hidden; hidden buttons still leave a bit of spacing.
 - MTMR is no longer actively developed, but it still works on macOS 26 (Tahoe).
 
 ## Uninstall

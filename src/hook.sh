@@ -45,5 +45,5 @@ now=$(date +%s)
 created=$($JQ -r '.created // empty' "$file" 2>/dev/null)
 tmp=$(mktemp "$DIR/.tmp.XXXXXX")
 $JQ -n --arg s "$state" --arg t "$title" --arg c "$cwd" --argjson ts "$now" --argjson cr "${created:-$now}" --arg id "$app_id" \
-  '{state:$s, title:$t, cwd:$c, ts:$ts, created:$cr, app_id:$id}' > "$tmp" && mv "$tmp" "$file"
+  '{kind:"code", state:$s, title:$t, cwd:$c, ts:$ts, created:$cr, app_id:$id}' > "$tmp" && mv "$tmp" "$file"
 exit 0

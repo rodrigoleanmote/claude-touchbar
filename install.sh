@@ -27,7 +27,10 @@ echo "Copying scripts to $DEST…"
 mkdir -p "$DEST/sessions"
 cp "$REPO/src/hook.sh" "$REPO/src/status.sh" "$REPO/src/open.sh" "$DEST/"
 chmod +x "$DEST"/*.sh
-python3 "$REPO/src/make_icon.py" "$DEST/bot.png"
+# One icon per kind of session; icons/<kind>.png also defines which kinds get Touch Bar buttons.
+rm -rf "$DEST/icons" "$DEST/bot.png"
+cp -R "$REPO/icons" "$DEST/icons"
+KINDS=$(cd "$DEST/icons" && ls *.png | sed 's/\.png$//' | "$JQ" -Rsc 'split("\n") | map(select(. != ""))')
 
 echo "Building the Cowork sidebar reader…"
 swiftc -O "$REPO/src/claudebar.swift" -o "$DEST/claudebar"
@@ -54,12 +57,13 @@ mkdir -p "$MTMR_DIR"
 if [ -f "$MTMR_CONFIG" ] && [ ! -f "$MTMR_CONFIG.bak-claude-touchbar" ]; then
   cp "$MTMR_CONFIG" "$MTMR_CONFIG.bak-claude-touchbar"
 fi
-"$JQ" -n --arg dest "$DEST" --argjson slots "$SLOTS" '
-  [range(1; $slots + 1) as $i | {
+# Each position gets one button per kind (with that kind's icon); only the matching one shows.
+"$JQ" -n --arg dest "$DEST" --argjson slots "$SLOTS" --argjson kinds "$KINDS" '
+  [range(1; $slots + 1) as $i | $kinds[] as $k | {
     type: "shellScriptTitledButton",
-    source: { inline: "\($dest)/status.sh \($i)" },
+    source: { inline: "\($dest)/status.sh \($i) \($k)" },
     refreshInterval: 1, align: "left", bordered: false,
-    image: { filePath: "\($dest)/bot.png" },
+    image: { filePath: "\($dest)/icons/\($k).png" },
     action: "shellScript", executablePath: "/bin/bash", shellArguments: ["\($dest)/open.sh", "\($i)"]
   }]
   + [ "previous", "play", "next", "brightnessDown", "brightnessUp", "volumeDown", "volumeUp", "mute"
