@@ -78,7 +78,10 @@ func rows(in sidebar: AXUIElement) -> [Row] {
             let label = children(e).first { str($0, "AXDOMClassList").hasPrefix("dframe-fade-label") }
             let status = label.flatMap { l in children(l).first { str($0, "AXDOMClassList").hasPrefix("sr-only") } }
             let title = label.flatMap { texts($0).first } ?? ""
-            let statusText = status.map { texts($0).joined(separator: " ") } ?? ""
+            // The status is either text inside that element ("Unread reply") or its description
+            // (a running Cowork session exposes "Running" only as the element's description).
+            let statusText = status.map { ([str($0, "AXDescription")] + texts($0)).joined(separator: " ")
+                .trimmingCharacters(in: .whitespaces) } ?? ""
             if !title.isEmpty && !statusText.isEmpty { out.append(Row(title: title, state: stateFor(statusText))) }
         }
         if cls.hasPrefix("sr-only.select-none") {
